@@ -135,8 +135,10 @@ jobs:
           $exe = Get-ChildItem build -Recurse -Filter sd-cli.exe | Select-Object -First 1
           if (-not $exe) { throw "sd-cli.exe uretilmedi" }
           $binDir = $exe.Directory.FullName
-          $n = (Get-ChildItem $binDir -Include *.dll,*.exe -File).Count
-          Write-Host "bin: $binDir ($n exe/dll)"
+          $files = @(Get-ChildItem -LiteralPath $binDir -File -Recurse | Where-Object { $_.Extension -in @('.dll', '.exe') })
+          if ($files.Count -eq 0) { throw "bin klasorunde exe/dll yok: $binDir" }
+          Write-Host "bin: $binDir ($($files.Count) dosya)"
+          $files | ForEach-Object { Write-Host "  $($_.Name) $([math]::Round($_.Length/1MB,1)) MB" }
           "BIN_DIR=$binDir" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: sm_${{ inputs.cuda_arch }} cekirdek goruntusunu dogrula
@@ -144,15 +146,19 @@ jobs:
         run: |
           $cuobjdump = "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.8\bin\cuobjdump.exe"
           $want = "sm_${{ inputs.cuda_arch }}"
-          $hits = @()
-          foreach ($t in Get-ChildItem $env:BIN_DIR -Include *.dll,*.exe -File) {
+          $files = @(Get-ChildItem -LiteralPath $env:BIN_DIR -File -Recurse | Where-Object { $_.Extension -in @('.dll', '.exe') })
+          if ($files.Count -eq 0) { throw "dogrulanacak ikili yok: $env:BIN_DIR" }
+          $all = @()
+          foreach ($t in $files) {
             $out = & $cuobjdump -lelf $t.FullName 2>$null
-            if ($out -match $want) { $hits += $t.Name }
+            $targets = @(($out | Select-String -Pattern 'sm_\d+' -AllMatches).Matches.Value | Sort-Object -Unique)
+            if ($targets.Count -gt 0) { Write-Host "$($t.Name): $($targets -join ', ')"; $all += $targets }
+            $global:LASTEXITCODE = 0
           }
-          if ($hits.Count -eq 0) { throw "$want ELF goruntusu bulunamadi" }
-          Write-Host "$want su dosyalarda: $($hits -join ', ')"
-          "SM_IN=$($hits -join ', ')" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          $global:LASTEXITCODE = 0
+          if ($all.Count -eq 0) { throw "hicbir ikilide ELF cekirdek goruntusu bulunamadi" }
+          if ($all -notcontains $want) { throw "beklenen $want yok; bulunanlar: $($all -join ', ')" }
+          Write-Host "$want DOGRULANDI (bulunan: $($all -join ', '))"
+          "SM_IN=$want" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           exit 0
 
       - name: Ham ikiliyi yedek artifact olarak yukle
