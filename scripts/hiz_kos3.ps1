@@ -73,7 +73,7 @@ while(-not $sp.HasExited){
   elseif($OlumD3 -and $po7 -ge 3){ $neden="olum: bos RAM $av MB < 700 ve sayfa yazimi $po/sn" }
   elseif($cm -gt 90){ $neden="bellek korkulugu: commit %$cm > 90" }
   elseif($poN -ge 3){ $neden="bellek korkulugu: kullanilabilir $av MB < 300 ve sayfa yazimi $po/sn (3 ornek ust uste)" }
-  elseif($vr -gt 3890){ $neden="VRAM $vr MiB > 3,8 GB" }
+  elseif($vr -gt $(if($env:VT_VRAM_ABORT_MB){[int]$env:VT_VRAM_ABORT_MB}else{3890})){ $neden="VRAM $vr MiB > kesme esigi ($(if($env:VT_VRAM_ABORT_MB){$env:VT_VRAM_ABORT_MB}else{3890}) MiB, VT_VRAM_ABORT_MB)" }
   elseif(((Get-Date)-$t0).TotalMinutes -gt $TavanDk){ $neden="sure tavani $TavanDk dk" }
   if(-not $tavanUyari -and $neden -eq 'bitti' -and ((Get-Date)-$t0).TotalMinutes -gt (0.8*$TavanDk)){ $tavanUyari=$true; try{ Add-Content "$Root\runs\olaylar.txt" ("{0} | UYARI hiz_kos3: {1} sure tavaninin %80'ine geldi ({2:N0}/{3} dk), tavan asilirsa kesilir" -f (Get-Date -Format 'HH:mm:ss'),$Deney,((Get-Date)-$t0).TotalMinutes,$TavanDk) }catch{} }
   if($neden -ne 'bitti'){ Stop-Process -Id $sp.Id -Force; "KESILDI: $neden" | Add-Content $zl; break }

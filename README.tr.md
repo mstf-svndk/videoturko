@@ -8,6 +8,8 @@
 
 VideoTurko: 4 GB GTX 1050 Ti'de MiniMax H3 ile metinden videoyu tek seferde 209 kareye (8,7 sn) kadar, resimden videoyu (`-InitImg`) 192 kareye (8,0 sn) kadar (209 kare bayt zinciriyle doğrulandı) üretmek için stable-diffusion.cpp bellek yamaları ve tarifler; 56 ve 141 karelik kontrollerde yamasız koşuyla bayt aynı.
 
+> **Monster (RTX 2050 4 GB / sm_86) notu:** yazarın yayın ikilisi Pascal sm_61 içindir; bu depoda ayrıca **sm_86 motoru** derlenir. Kurulum ve ölçüm notları: [MONSTER.md](MONSTER.md).
+
 ## Hızlı başlangıç (Windows, 3 adım)
 **Durum: aşağıdaki kurulum/çalıştırma betikleri tamamlanıyor ve temiz kök testi bekliyor; bu test geçene kadar burada hiçbir şeyin çalıştığı iddia edilmez ("Durum ve sınırlar").**
 
