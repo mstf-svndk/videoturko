@@ -1,0 +1,236 @@
+name: derle-engine-sm86
+
+# Monster (RTX 2050 4 GB, Ampere sm_86) icin sd-cli motorunu derler.
+# Taban: stable-diffusion.cpp 32d516c + ggml d803c238, depodaki patches/ serisi (SERIES.txt sirasi).
+# Cikti: videoturko-motor-<surum>-win64-cuda12.8-sm86.zip (+ sha256), istege bagli taslak release.
+# Not: bu runner'da GPU yok; derleme ve sm_86 cekirdek dogrulamasi yapilir, gercek kosu Monster'da olur.
+
+on:
+  workflow_dispatch:
+    inputs:
+      engine_version:
+        description: "Zip adinda gorunecek surum (orn. 0.1.0)"
+        required: false
+        default: "0.1.0"
+        type: string
+      release_tag:
+        description: "Bu etiketle TASLAK release olustur (bos = yalniz artifact)"
+        required: false
+        default: ""
+        type: string
+      cuda_arch:
+        description: "CUDA mimarisi (RTX 2050 = 86)"
+        required: false
+        default: "86"
+        type: string
+      parallel:
+        description: "Paralel derleme is sayisi"
+        required: false
+        default: "3"
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  engine:
+    runs-on: windows-2022
+    timeout-minutes: 300
+    env:
+      SDCPP_REPO: https://github.com/leejet/stable-diffusion.cpp.git
+      SDCPP_COMMIT: 32d516c
+      GGML_COMMIT: d803c238
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Runner bilgisi
+        shell: pwsh
+        run: |
+          Write-Host "CPU sayisi: $env:NUMBER_OF_PROCESSORS"
+          Get-PSDrive C | Select-Object @{n='FreeGB';e={[math]::Round($_.Free/1GB,1)}}
+
+      - name: CUDA 12.8 kur (surucu yok, yalniz nvcc + kutuphaneler)
+        uses: Jimver/cuda-toolkit@v0.2.36
+        with:
+          cuda: "12.8.0"
+          method: "local"
+          use-github-cache: "true"
+
+      - name: nvcc kontrol
+        shell: pwsh
+        run: |
+          nvcc --version
+          $cuobjdump = "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.8\bin\cuobjdump.exe"
+          if (-not (Test-Path $cuobjdump)) { throw "cuobjdump bulunamadi" }
+
+      - name: stable-diffusion.cpp kaynagini sabit commit'ten al
+        shell: pwsh
+        run: |
+          git -c core.autocrlf=false clone --quiet $env:SDCPP_REPO sdcpp
+          git -C sdcpp checkout --quiet $env:SDCPP_COMMIT
+          git -C sdcpp submodule update --init --recursive --quiet
+          git -C sdcpp/ggml checkout --quiet $env:GGML_COMMIT
+          Write-Host "sdcpp $(git -C sdcpp rev-parse --short HEAD) / ggml $(git -C sdcpp/ggml rev-parse --short HEAD)"
+
+      - name: Yamalari uygula (SERIES.txt sirasi)
+        shell: pwsh
+        run: |
+          $P = (Resolve-Path "patches").Path
+          git -C sdcpp config user.email "mustafff13@gmail.com"
+          git -C sdcpp config user.name "Mustafa"
+          git -C sdcpp/ggml config user.email "mustafff13@gmail.com"
+          git -C sdcpp/ggml config user.name "Mustafa"
+          $lines = @(Get-Content (Join-Path $P "SERIES.txt") -Encoding UTF8 |
+            ForEach-Object { $_.Trim() } |
+            Where-Object { $_ -match '^(ggml|sdcpp)/\S+\.patch$' })
+          Write-Host "yama sayisi: $($lines.Count)"
+          foreach ($l in $lines) {
+            $target = if ($l.StartsWith("ggml/")) { "sdcpp/ggml" } else { "sdcpp" }
+            $patchFile = Join-Path $P $l
+            Write-Host "== $l -> $target"
+            git -C $target am --3way $patchFile
+            if ($LASTEXITCODE -ne 0) { throw "yama uygulanamadi: $l" }
+          }
+          if (Test-Path "sdcpp/.git/rebase-apply") { throw "git am yarim kaldi (rebase-apply var)" }
+          Write-Host "tum yamalar uygulandi: sdcpp $(git -C sdcpp rev-list --count HEAD) commit, ggml $(git -C sdcpp/ggml rev-list --count HEAD) commit"
+
+      - name: Yama izleri (ortam degiskenleri) kaynakta var mi
+        shell: pwsh
+        run: |
+          $src = Get-ChildItem sdcpp\src -Recurse -Include *.cpp,*.hpp,*.h
+          $need = @("SD_VIDEO_LATENT_SAVE", "SD_MLP_CHUNK_MB", "SD_CUT_CACHE_HOST_MB", "SD_H3_EMBED_CUT", "SD_VAE_EMBED_CUT", "SD_VRAM_MARGIN_MB", "SD_VAE_VRAM_MARGIN_MB", "SD_PREFETCH_MMAP_MATCH", "SD_VAE_NO_TILING_FALLBACK")
+          $all = ($src | Get-Content -Raw) -join "`n"
+          $missing = @($need | Where-Object { $all -notmatch [regex]::Escape($_) })
+          if ($missing.Count -gt 0) { throw "kaynakta bulunmayan yama degiskenleri: $($missing -join ', ')" }
+          Write-Host "yama izleri tamam: $($need -join ', ')"
+
+      - name: CMake yapilandir (sm_86, paylasimli kutuphaneler)
+        shell: pwsh
+        run: |
+          $cfg = @(
+            "-S", "sdcpp", "-B", "build", "-G", "Visual Studio 17 2022", "-A", "x64",
+            "-DSD_CUDA=ON",
+            "-DCMAKE_CUDA_ARCHITECTURES=${{ inputs.cuda_arch }}",
+            "-DGGML_NATIVE=OFF",
+            "-DGGML_BACKEND_DL=ON",
+            "-DSD_BUILD_SHARED_LIBS=ON",
+            "-DSD_BUILD_SHARED_GGML_LIB=ON",
+            "-DSD_SERVER_BUILD_FRONTEND=OFF"
+          )
+          Write-Host "cmake $($cfg -join ' ')"
+          cmake @cfg
+          if ($LASTEXITCODE -ne 0) { throw "cmake yapilandirmasi basarisiz" }
+
+      - name: Derle (Release)
+        shell: pwsh
+        run: |
+          cmake --build build --config Release --parallel ${{ inputs.parallel }}
+          if ($LASTEXITCODE -ne 0) { throw "derleme basarisiz" }
+
+      - name: Ikiliyi bul
+        id: find
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem build -Recurse -Filter sd-cli.exe | Select-Object -First 1
+          if (-not $exe) { throw "sd-cli.exe uretilmedi" }
+          $binDir = $exe.Directory.FullName
+          $n = (Get-ChildItem $binDir -Include *.dll,*.exe -File).Count
+          Write-Host "bin: $binDir ($n exe/dll)"
+          "BIN_DIR=$binDir" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: sm_${{ inputs.cuda_arch }} cekirdek goruntusunu dogrula
+        shell: pwsh
+        run: |
+          $cuobjdump = "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.8\bin\cuobjdump.exe"
+          $want = "sm_${{ inputs.cuda_arch }}"
+          $hits = @()
+          foreach ($t in Get-ChildItem $env:BIN_DIR -Include *.dll,*.exe -File) {
+            $out = & $cuobjdump -lelf $t.FullName 2>$null
+            if ($out -match $want) { $hits += $t.Name }
+          }
+          if ($hits.Count -eq 0) { throw "$want ELF goruntusu bulunamadi" }
+          Write-Host "$want su dosyalarda: $($hits -join ', ')"
+          "SM_IN=$($hits -join ', ')" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          $global:LASTEXITCODE = 0
+          exit 0
+
+      - name: Ham ikiliyi yedek artifact olarak yukle
+        uses: actions/upload-artifact@v4
+        with:
+          name: engine-sm${{ inputs.cuda_arch }}-raw
+          path: build/bin/Release
+          if-no-files-found: error
+          retention-days: 3
+
+      - name: Motor zip'ini paketle
+        shell: pwsh
+        run: |
+          $ver = "${{ inputs.engine_version }}"
+          $arch = "${{ inputs.cuda_arch }}"
+          $name = "videoturko-motor-$ver-win64-cuda12.8-sm$arch.zip"
+          $top = "videoturko-motor-$ver-win64-cuda12.8-sm$arch"
+          New-Item -ItemType Directory -Force "stage\$top" | Out-Null
+          Copy-Item "$env:BIN_DIR\*.exe","$env:BIN_DIR\*.dll" "stage\$top" -Force
+          New-Item -ItemType Directory -Force "stage\$top\lisanslar" | Out-Null
+          Copy-Item NOTICE "stage\$top" -Force
+          Copy-Item THIRD_PARTY.md "stage\$top" -Force
+          Copy-Item sdcpp\LICENSE "stage\$top\lisanslar\LICENSE-sd.cpp" -Force
+          Copy-Item sdcpp\ggml\LICENSE "stage\$top\lisanslar\LICENSE-ggml" -Force
+          $readme = @"
+          VideoTurko motor (sm_$arch) - mstf-svndk/videoturko
+          ====================================================
+          sd-cli + kutuphaneler; NVIDIA Ampere compute capability 8.$($arch.Substring(1)) icin derlendi
+          (referans kart: RTX 2050 4 GB). CUDA 12.8, Windows x64.
+
+          Kaynak: stable-diffusion.cpp $(git -C sdcpp rev-parse --short HEAD) (taban $env:SDCPP_COMMIT),
+                  ggml $(git -C sdcpp/ggml rev-parse --short HEAD) (taban $env:GGML_COMMIT)
+          Yamalar: patches/ serisi (SERIES.txt sirasi), yalniz bellek/zamanlama; kalite ayarlari degismedi.
+          CUDA calisma zamani DLL'leri (cudart/cublas/cublasLt) bu zip'te YOKTUR; ayri zip'ten gelir.
+
+          Bu ikili GPU'suz bir derleme makinesinde uretildi; gercek kosu kisiti Monster'da olculmelidir.
+          "@
+          Set-Content -LiteralPath "stage\$top\README-motor.txt" -Value $readme -Encoding UTF8
+          Push-Location "stage\$top"
+          $sums = Get-ChildItem -Recurse -File | Where-Object { $_.Name -ne "SHA256SUMS.txt" } |
+                  Sort-Object FullName |
+                  ForEach-Object { "{0}  {1}" -f (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower(), $_.Name }
+          Set-Content -LiteralPath "SHA256SUMS.txt" -Value $sums -Encoding ASCII
+          Pop-Location
+          Compress-Archive -Path "stage\$top" -DestinationPath $name -CompressionLevel Optimal
+          $h = (Get-FileHash $name -Algorithm SHA256).Hash.ToLower()
+          $b = (Get-Item $name).Length
+          Write-Host "MOTOR_ZIP $name"
+          Write-Host "MOTOR_BYTES $b"
+          Write-Host "MOTOR_SHA256 $h"
+          Write-Host "SM_DOSYALAR $env:SM_IN"
+          "MOTOR_NAME=$name" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "MOTOR_SHA256=$h" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "MOTOR_BYTES=$b" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          @"
+          ### Motor derlemesi (sm_$arch)
+          - zip: ``$name``
+          - boyut: ``$b`` bayt
+          - sha256: ``$h``
+          - CUDA mimarisi: sm_$arch
+          - sm goruntusu: ``$env:SM_IN``
+          "@ | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+
+      - name: Motor zip artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: motor-sm${{ inputs.cuda_arch }}
+          path: videoturko-motor-*.zip
+          if-no-files-found: error
+
+      - name: Taslak release (istege bagli)
+        if: ${{ inputs.release_tag != '' }}
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ inputs.release_tag }}" "$env:MOTOR_NAME" `
+            --draft `
+            --title "Motor ${{ inputs.release_tag }} (sm_${{ inputs.cuda_arch }}, CUDA 12.8)" `
+            --notes "mstf-svndk/videoturko icin sm_${{ inputs.cuda_arch }} motoru (RTX 2050 4 GB). stable-diffusion.cpp 32d516c + ggml d803c238 + patches/ serisi. sha256: $env:MOTOR_SHA256. Monster'da henuz kosulmadi."
+          if ($LASTEXITCODE -ne 0) { throw "gh release create basarisiz" }
