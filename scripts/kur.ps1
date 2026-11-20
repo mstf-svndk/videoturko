@@ -57,6 +57,25 @@ function Adim-Kontrol0 {
     if ([double]::TryParse(($cc -replace ',', '.'), [Globalization.NumberStyles]::Float, [Globalization.CultureInfo]::InvariantCulture, [ref]$ccV)) { $ccOk = $true }
     if ($ccOk -and $ccV -lt 6.1) { Say '  HATA: compute capability 6.1 (Pascal) ya da ustu gerekir'; if (-not $Zorla) { exit 3 } }
     if ($gpuAd -notmatch '1050 Ti') { [void]$uyari.Add("Dogrulanmis donanim yalniz GTX 1050 Ti 4 GB (sm_61). $gpuAd denenmedi; devam edebilirsiniz ama sonuc garanti degil.") }
+    # --- Monster/Ampere devri: bu depodaki yayin motoru Pascal sm_61 icindir. Pascal'dan yeni bir kart
+    # --- gorulurse (RTX 20xx/30xx/40xx...) sm_86 motorunu kuran scripts\kur-monster.ps1'e devret.
+    # --- Sarmalayici VT_MOTOR_URL set ettigi icin geri donus (sonsuz dongu) olmaz.
+    if ($ccOk -and $ccV -gt 6.1 -and -not $env:VT_MOTOR_URL) {
+        $sm = Join-Path $PSScriptRoot 'kur-monster.ps1'
+        if (Test-Path -LiteralPath $sm) {
+            Say ("  compute capability {0}: Pascal (sm_61) degil -> sm_86 motorunu kuran kur-monster.ps1 devraliyor" -f $ccV)
+            $devir = @('-Adim', ($Adim -join ','))
+            if ($Kuru) { $devir += '-Kuru' }
+            if ($Zorla) { $devir += '-Zorla' }
+            if ($LisansKabul) { $devir += @('-LisansKabul', $LisansKabul) }
+            if ($ModelKlasoru) { $devir += @('-ModelKlasoru', $ModelKlasoru) }
+            if ($MotorZip) { $devir += @('-MotorZip', $MotorZip) }
+            if ($CudaZip) { $devir += @('-CudaZip', $CudaZip) }
+            & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $sm @devir
+            exit $LASTEXITCODE
+        }
+        Say '  UYARI: bu kart sm_61 degil; yayin motoru sm_61 icindir. RTX 2050 icin scripts\kur-monster.ps1 kullanin.'
+    }
     # RAM
     $os2 = Get-CimInstance Win32_OperatingSystem
     $ramGB = [Math]::Round($os2.TotalVisibleMemorySize / 1MB, 1); $bosGB = [Math]::Round($os2.FreePhysicalMemory / 1MB, 1)
