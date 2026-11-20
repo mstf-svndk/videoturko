@@ -32,7 +32,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\kur-monster.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\uret.ps1 -Istem istem.txt -Kare 192
 ```
 
-`kur-monster.ps1`, yazarın `kur.ps1`'ine **yalnızca indirme adreslerini** verir (sm_86 motor zip'i + CUDA çalışma zamanı zip'i, ikisi de bu deponun sürümünde, sha256 gömülü) ve eski/sm_61 motor kuruluysa onu yeniler. `kur.ps1`'in kendi denetimleri, çıkış kodları ve `HAZIR` kontrol üretimi aynen geçerli.
+`kur-monster.ps1`, yazarın `kur.ps1`'ine **yalnızca indirme adreslerini** verir (sm_86 motor zip'i + CUDA çalışma zamanı zip'i, ikisi de bu deponun sürümünde, sha256 gömülü) ve eski/sm_61 motor kuruluysa onu yeniler. `kur.ps1`'in kendi denetimleri, çıkış kodları ve `HAZIR` kontrol üretimi aynen geçerli. Depodaki `kur.ps1` de sm_61 üstü bir kart (Ampere ve sonrası) görürse kendiliğinden `kur-monster.ps1`'e devreder; yine de yukarıdaki komut en açık yoldur.
 
 **İlk iş 56 kare ile test et** (17k+5 dizisi: 56, 73, ..., 192, 209):
 ```powershell
