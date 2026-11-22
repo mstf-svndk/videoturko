@@ -77,7 +77,7 @@ if ($IkiAsama) {
     $Env1['SD_VRAM_MARGIN_MB'] = '1'; $Env1['SD_H3_EMBED_CUT'] = '1'; $Env1['SD_H3_DROP_QUEUED'] = '1'; $Env1['SD_H3_EVICT_PAST'] = '1'
     $Env1['SD_ATTN_SET_OUT'] = '1'; $Env1['SD_QKV_CHUNK_MB'] = '64'; $Env1['SD_QKV_SET_OUT'] = '1'; $Env1['SD_MLP_CHUNK_MB'] = '64'
     $Env1['SD_VIDEO_LATENT_SAVE'] = $Latent   # F209b/F209V2 tarifi; MLP_SET_OUT KAPALI (bellegi artirir)
-    $Env2['SD_VRAM_MARGIN_MB'] = '256'; $Env2['SD_VAE_VRAM_MARGIN_MB'] = '256'; $Env2['SD_CUT_CACHE_HOST_MB'] = '100'
+    $Env2['SD_VRAM_MARGIN_MB'] = '256'; $Env2['SD_VAE_VRAM_MARGIN_MB'] = $(if ($env:VT_VAE_MARGIN_MB) { $env:VT_VAE_MARGIN_MB } else { '256' }); $Env2['SD_CUT_CACHE_HOST_MB'] = '100'
     $Env2['SD_VAE_NO_TILING_FALLBACK'] = '1'; $Env2['SD_VAE_EMBED_CUT'] = '1'; $Env2['SD_VIDEO_LATENT_LOAD'] = $Latent
 } else {
     $Env1['SD_VAE_NO_TILING_FALLBACK'] = '1'

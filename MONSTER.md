@@ -39,20 +39,35 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\uret.ps1 -Istem iste
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\uret.ps1 -Istem istem.txt -Kare 56
 ```
 
-## Beklenen süreler (tahmin — ölçülmedi)
-1050 Ti ölçümlerinden ölçeklenmiş hesap (yazarın `docs/OLCUMLER.md` aşama süreleri):
+## Ölçülen sonuçlar (22 Kasım 2026 — Monster'da gerçek koşu)
+| Koşu | Kare | Süre | VRAM tepe | Kapı |
+|---|---|---|---|---|
+| 5 kare kontrol (ilk yükleme dahil) | 5 | 14 dk 16 sn | 3938/4096 MiB | geçti |
+| 56 kare | 56 | **3 dk 34 sn** | 2763/4096 MiB | geçti |
+| 192 kare (iki aşamalı, `VT_VAE_MARGIN_MB=64`) | 192 | **10 dk 39 sn** | 3757/4096 MiB | geçti |
 
-| Kare | Süre (video) | 1050 Ti ölçümü | Monster tahmini |
-|---|---|---|---|
-| 56 | 2,3 sn | ~10 dk | ~5-6 dk |
-| 192 | 8,0 sn | ~43 dk | **~18-22 dk** |
-| 209 | 8,7 sn | ~51 dk | ~21-26 dk |
+Kare sayısı, ses akışı (pcm_s16le) ve 640x384 / 24 fps ffprobe ile doğrulandı; süreler model yüklemesi dahil toplam süredir.
+192 karede aşama 1 (DiT) ≈ 8 dk, aşama 2 (VAE) ≈ 2 dk. 1050 Ti'daki ~43 dk'ya karşı ~4 kat hızlı.
+209 kare bu makinede **henüz ölçülmedi** (aynı ayarla ~11-12 dk beklenir).
 
-Kazanç ~2,2 kat: çekirdek sayısı 2,7 kat ama bellek yolu iki kartta da ~112 GB/s ve bu hat modeli ağırlıkları host RAM'den akıtıyor.
+### Ölçümden çıkan iki tuzak
+1. **VRAM'i başka bir süreç tutuyorsa 56 kare bile düşer.** Monster'da Inkling `llama-server` (3,9 GB) açıkken 56 kare `segment 23/51 … allocated capacity check` ile öldü; aynı koşu boş kartta 3 dk 34 sn'de geçti. Video üretmeden önce VRAM'i tutan sunucu/oyun/tarayıcıyı kapatın (`nvidia-smi` ile doğrulayın).
+2. **192 karede VAE aşaması 10 MB ile kaçar.** Varsayılan `SD_VAE_VRAM_MARGIN_MB=256` ile aşama 2 "need 2730 MB / available 2719 MB" diyip düşüyor; **64** ile geçiyor. Bu depodaki `uret.ps1` artık `VT_VAE_MARGIN_MB` ortam değişkenini onurlandırıyor (varsayılan değişmedi, 256):
+```powershell
+$env:VT_VAE_MARGIN_MB = '64'
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\uret.ps1 -Istem istem.txt -Kare 192
+```
+
+## Beklenen süreler (ölçüm öncesi tahmin — 1050 Ti'dan ölçeklenmiş)
+| Kare | Süre (video) | 1050 Ti ölçümü | İlk tahmin | Monster'da ölçülen |
+|---|---|---|---|---|
+| 56 | 2,3 sn | ~10 dk | ~5-6 dk | **3 dk 34 sn** |
+| 192 | 8,0 sn | ~43 dk | ~18-22 dk | **10 dk 39 sn** |
+| 209 | 8,7 sn | ~51 dk | ~21-26 dk | ölçülmedi |
 
 ## Sınırlar ve riskler
 - **4 GB VRAM aynen duruyor:** yazarın 209 karede ölçtüğü tepe 3777/4096 MiB. Ekran RTX 2050'ye bağlıysa pay daralır — **dahili GPU'da (Optimus) bırakın**.
-- **Bu ikili GPU'suz sunucuda derlendi:** sm_86 çekirdek görüntüsü doğrulandı ama Monster'da gerçek koşu henüz ölçülmedi. İlk 56 kare koşusu bunu kesinleştirir.
+- **Bu ikili GPU'suz sunucuda derlendi** ama Monster'da gerçek koşuda doğrulandı: CUDA arka ucu yüklendi (`compute capability 8.6`), 5 / 56 / 192 kare koşuları kalite kapısından geçti (yukarıdaki ölçüm tablosu).
 - `blocks.0 failed during weight preparation` → VRAM yetmedi: daha küçük kare sayısı seçin, tarayıcı/oyun kapatın.
 - Model **HDD'de olmaz**: ilk adımlar 15-25 kat yavaşlar.
 - Süre tavanı: `uret.ps1` 209 kare için 80 dk veriyor; daha uzun sürerse `-TavanDk` artırın.
